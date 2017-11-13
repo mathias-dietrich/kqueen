@@ -1,11 +1,13 @@
+from .exceptions import BackendError
+from .exceptions import MissingParameter
+from flask import current_app
+from kqueen.config import current_config
+
 import etcd
+import importlib
 import json
 import logging
 import uuid
-import importlib
-from kqueen.config import current_config
-from flask import current_app
-from .exceptions import BackendError
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +130,16 @@ class RelationField(Field):
 
     """
 
-    # TODO: make Model property - limit relation objects only to one model
+    def __init__(self, *args, **kwargs):
+        self.remote_class = kwargs.get('remote_class')
+
+        if not self.remote_class:
+            raise MissingParameter('RelationField is missing remote_class')
+
+        if not issubclass(self.remote_class, Model):
+            raise MissingParameter('RelationField must be Model subclass')
+
+        super(RelationField, self).__init__(*args, **kwargs)
 
     def serialize(self):
         if self.value and self.__class__.is_field:

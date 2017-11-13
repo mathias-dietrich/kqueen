@@ -23,10 +23,52 @@ config = current_config()
 #
 
 
+class Provisioner(Model, metaclass=ModelMeta):
+    id = IdField(required=True)
+    name = StringField(required=True)
+    engine = StringField(required=True)
+    state = StringField()
+    parameters = JSONField()
+
+    def get_engine_cls(self):
+        """Return engine class"""
+        try:
+            module_path = '.'.join(self.engine.split('.')[:-1])
+            class_name = self.engine.split('.')[-1]
+            module = import_module(module_path)
+            _class = getattr(module, class_name)
+        except:
+            _class = None
+        return _class
+
+    @property
+    def engine_name(self):
+        return getattr(self.get_engine_cls(), 'verbose_name', self.engine)
+
+    def engine_status(self, save=True):
+        state = config.get('PROVISIONER_UNKNOWN_STATE')
+        engine_class = self.get_engine_cls()
+        if engine_class:
+            state = engine_class.engine_status()
+        if save:
+            self.state = state
+            self.save()
+        return state
+
+    def alive(self):
+        """Test availability of provisioner and return bool"""
+        return True
+
+    def save(self, check_status=True):
+        if check_status:
+            self.state = self.engine_status(save=False)
+        return super(Provisioner, self).save()
+
+
 class Cluster(Model, metaclass=ModelMeta):
     id = IdField(required=True)
     name = StringField(required=True)
-    provisioner = RelationField()
+    provisioner = RelationField(remote_class=Provisioner)
     state = StringField()
     kubeconfig = JSONField()
     metadata = JSONField()
@@ -268,49 +310,6 @@ class Cluster(Model, metaclass=ModelMeta):
 
         return run
 
-
-class Provisioner(Model, metaclass=ModelMeta):
-    id = IdField(required=True)
-    name = StringField(required=True)
-    engine = StringField(required=True)
-    state = StringField()
-    parameters = JSONField()
-
-    def get_engine_cls(self):
-        """Return engine class"""
-        try:
-            module_path = '.'.join(self.engine.split('.')[:-1])
-            class_name = self.engine.split('.')[-1]
-            module = import_module(module_path)
-            _class = getattr(module, class_name)
-        except:
-            _class = None
-        return _class
-
-    @property
-    def engine_name(self):
-        return getattr(self.get_engine_cls(), 'verbose_name', self.engine)
-
-    def engine_status(self, save=True):
-        state = config.get('PROVISIONER_UNKNOWN_STATE')
-        engine_class = self.get_engine_cls()
-        if engine_class:
-            state = engine_class.engine_status()
-        if save:
-            self.state = state
-            self.save()
-        return state
-
-    def alive(self):
-        """Test availability of provisioner and return bool"""
-        return True
-
-    def save(self, check_status=True):
-        if check_status:
-            self.state = self.engine_status(save=False)
-        return super(Provisioner, self).save()
-
-
 #
 # AUTHENTICATION
 #
@@ -331,7 +330,10 @@ class User(Model, metaclass=ModelMeta):
     username = StringField(required=True)
     email = StringField(required=False)
     password = SecretField(required=True)
-    organization = RelationField(required=True)
+    organization = RelationField(
+        remote_class=Organization,
+        required=True
+    )
 
     @property
     def namespace(self):

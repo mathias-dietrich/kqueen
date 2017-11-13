@@ -6,11 +6,16 @@ from kqueen.storages.etcd import RelationField
 from kqueen.storages.etcd import SecretField
 from kqueen.storages.etcd import StringField
 from kqueen.storages.exceptions import BackendError
+from kqueen.storages.exceptions import MissingParameter
 
 import pytest
 
 
-def create_model(required=False, global_ns=False):
+class RemoteClass(Model, metaclass=ModelMeta):
+    id = IdField(required=True)
+
+
+def create_model(required=False, global_ns=False, remote_class=RemoteClass):
     class TestModel(Model, metaclass=ModelMeta):
         if global_ns:
             global_namespace = global_ns
@@ -19,7 +24,13 @@ def create_model(required=False, global_ns=False):
         string = StringField(required=required)
         json = JSONField(required=required)
         secret = SecretField(required=required)
-        relation = RelationField(required=required)
+        if remote_class:
+            relation = RelationField(
+                required=required,
+                remote_class=RemoteClass,
+            )
+        else:
+            relation = RelationField(required=required)
 
     return TestModel
 
@@ -240,9 +251,16 @@ class TestRelationField:
         assert self.obj1.relation == self.obj2
         assert self.obj1._relation.value == self.obj2
 
+    @pytest.mark.parametrize('remote_class,error_match', [
+        (None, 'RelationField is missing remote_class'),
+    ])
+    def test_raises_on_missing_remote_class(self, remote_class, error_match):
+        with pytest.raises(MissingParameter, match=error_match):
+            create_model(False, True, remote_class)
+
     def test_relation_serialization(self):
         ser = self.obj1._relation.serialize()
-        req = '{model_name}:{object_id}'.format(
+        req = '{object_id}'.format(
             model_name=self.obj2.__class__.__name__,
             object_id=self.obj2.id
         )
